@@ -1,15 +1,23 @@
 #include <SPI.h>
 
-byte WRCFG[2] {0x01,0xc7}; // Write Configuration Register
-byte RDCFG[2] {0x02,0xce}; // Read Configuration Register
-byte RDCV[2]  {0x04,0xdc}; // Read all cell voltages
-byte RDCVA[2] {0x06,0xd2};
-byte RDCVB[2] {0x08,0xf8};
-byte RDTMP[2] {0x0e,0xea}; // Read all temperatures, page 22
-byte STCVDC[2] {0x60,0xe7};  //STCVDC, page 23
-byte STCVAD[2] {0x10,0xb0};  //STCVAD, page 23
-byte DAGN[2] {0x52,0x79};
-byte RDDGNR[2] {0x54,0x6b};
+// datasheet page 22
+byte WRCFG[2] {0x01,0xc7};  // Write Configuration Register
+byte RDCFG[2] {0x02,0xce};  // Read Configuration Register
+byte RDCV[2]  {0x04,0xdc};  // Read all cell voltages
+byte RDCVA[2] {0x06,0xd2};  // Read cell voltages 1-4
+byte RDCVB[2] {0x08,0xf8};  // Read cell voltages 5-8
+byte RDCVC[2] {0x0a,0xf6};  // Read cell voltages 9-12
+byte RDFLG[2] {0x0c,0xe4};  // flag register
+byte RDTMP[2] {0x0e,0xea};  // temperature register
+byte STCVAD[2] {0x10,0xb0}; // start cell voltage ADC conversion and status (all)
+byte STOWAD[2] {0x20,0x20}; // start open-wire ADC conversions and poll status
+byte STTMPAD[2] {0x30,0x50};// start temperature ADC conversions and poll status
+byte PLADC[2] {0x40,0x07};  // poll adc converter status
+byte PLINT[2] {0x50,0x77};  // poll interrupt status
+byte DAGN[2] {0x52,0x79};   // start diagose and poll status
+byte RDDGNR[2] {0x54,0x6b}; // read diagnose register
+byte STCVDC[2] {0x60,0xe7}; // start cell voltage ADC conversions and poll status, with discharge permitted
+byte STOWDC[2] {0x70,0x97}; // start open-wire ADC conversions and poll status, with discharge permitted
 
 #define VLSB .0015 // 1.5 mV
 
@@ -58,13 +66,13 @@ void setup() {
   
 }
 
+int count = 0;
+
 void loop() {
-  int count = 10;
-
-
   if (readConfig(addr0,false) == 0) {
     if ( count == 0 ) {
-      doSelfTest(addr2);
+      readConfig(addr0, true);
+      doSelfTest(addr0);
     } else {
       getAll(addr0);
     }
@@ -72,7 +80,8 @@ void loop() {
   
   if (readConfig(addr1,false) == 0) {
     if ( count == 0 ) {
-      doSelfTest(addr2);
+      readConfig(addr1, true);
+      doSelfTest(addr1);
     } else {
       getAll(addr1);
     }
@@ -80,6 +89,7 @@ void loop() {
   
   if (readConfig(addr2,false) == 0) {
     if ( count == 0 ) {
+      readConfig(addr2, true);
       doSelfTest(addr2);
     } else {
       getAll(addr2);
@@ -93,7 +103,7 @@ void loop() {
     count--;
   }
     
-    Serial.println("##################################################################");
+    Serial.println("##############################"+String(count)+"####################################");
   //}
 //}
 
@@ -105,7 +115,6 @@ void loop() {
 }
 
 void getAll(byte * ltc_addr) {
-  readConfig(ltc_addr, true);
   readVoltages(ltc_addr);
   readTemperatures(ltc_addr);
 }
@@ -197,31 +206,56 @@ int doSelfTest(byte *ltc_addr) {
   int err_count = 0;
   
   Serial.println("Running diagnose on 0x"+String(ltc_addr[0],HEX));
+  
+  byte res[2];
+  // read diagnose register, 2 bytes
+  readBytes(ltc_addr,RDDGNR,res,2);
+  Serial.println("DGNR0: 0x"+String(res[0],HEX));
+  Serial.println("DGNR1: 0x"+String(res[1],HEX));
+  
+  // read flag register, 3 bytes
+  readBytes(ltc_addr,RDFLG,res,3);
+  Serial.println("FLGR0: 0x"+String(res[0],HEX));
+  Serial.println("FLGR1: 0x"+String(res[1],HEX));
+  Serial.println("FLGR2: 0x"+String(res[1],HEX));
+  
+  // TODO PLINT poll Interrupt status
+
+  
   spiStart(ltc_addr);
   // start diagnose and poll status
   sendMultiplebyteSPI(DAGN, 2);
   spiEnd();
+  delay(50);
+  // TODO PLADC poll ADC converter status
   
-  // RDDGNR read diagnose register, 2 bytes
-  byte res[2];
-  readBytes(ltc_addr,RDDGNR,res,2);
-  Serial.println(res[0],HEX);
-  Serial.println(res[1],HEX);
-  
-  // TODO PLINT poll ADC converter status
+  // so far this has always failed ; see page 16
+  Serial.println("All bytes below should read 0x555 or 0xAAA");
   
   byte voltages[18];
-
   if (readBytes(ltc_addr,RDCV,voltages,18)) {
     for (int i = 0 ; i < 18 ; i++ ) {
-      Serial.println("Cell "+String(i,DEC)+": "+String(voltages[i],DEC)+" [V]");
+      Serial.println("CVR0"+String(i,DEC)+": "+String(voltages[i],HEX));
     }
   } else { err_count += 1; }
- 
-   return err_count;
+
+  byte temperatures[5];
+  if (readBytes(ltc_addr,RDTMP,temperatures,5)) {
+    for (int i = 0 ; i < 5 ; i++ ) {
+      Serial.println("TMPR"+String(i,DEC)+": "+String(temperatures[i],HEX));
+    }
+  } else { err_count += 1; }
+
+  return err_count;
 }
 
-// Write Configuration Registers for LTC6803-4 using Broadcast Write
+/* Write Configuration Registers for LTC6803-4 using Broadcast Write
+ *
+ * GPIO1 is CFRG0&0x20
+ * GPIO2 is CFRG0&0x40
+ * 
+ * for more options see Table 10. page 23
+*/
 void writeConfig(byte *ltc_addr){
  Serial.println("Writing configuration register on 0x"+String(ltc_addr[0],HEX));spiStart(ltc_addr);
  sendMultiplebyteSPI(WRCFG, 2);
@@ -251,7 +285,8 @@ int readVoltages(byte * ltc_addr){
  Serial.println("Reading voltages on 0x"+String(ltc_addr[0],HEX));
  // enable polling/conversion
  spiStart(ltc_addr);
- sendMultiplebyteSPI(STCVAD, 2);
+ sendMultiplebyteSPI(STCVAD, 2);  // chose one of STVCAD,STOWAD,STCVDC,STOWDC
+ // what about "Poll Data" in Table 6. "Address Poll Command" on page 21?
  //byte result;
  //result = SPI.transfer(RDCV[0]);
  //Serial.println("Reading voltages on 0x"+String(ltc_addr[0],HEX)+" result: "+String(result,HEX));
@@ -260,56 +295,46 @@ int readVoltages(byte * ltc_addr){
 
  int err_count = 0;
  byte res[6];
+ 
 
+  int j = 0;
   if (readBytes(ltc_addr,RDCVA,res,6)) {
     for (int i = 0 ; i < 2 ; i++ ) {
-      //for (int j = 0 ; j < 3 ; j++ ) {
-      //  Serial.println("Byte "+String(3*i+j,DEC)+": "+String(res[3*i+j],HEX));
-      //}
-      byte vaM = (res[3*i+1]&0x0f) ;
-      byte vaL = res[3*i];
-      //Serial.println("Double "+String(i,DEC)+": "+String(vaM,HEX)+"'"+String(vaL,HEX));
-      double va = ((vaM*0xff + vaL)-512)*VLSB;
-      Serial.println("+++++> "+String(va)+" [V]");
-      //byte vbM = res[3*i+2];
-      //byte vbL = (res[3*i+1]&0xf0)>>4;
-      byte vbM = res[3*i+2]>>4;
-      byte vbL = (res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4;
-      //Serial.println("Double "+String(i+1,DEC)+": "+String(vbM,HEX)+"'"+String(vbL,HEX)+"   "+vbM*255+"+"+vbL);
-      double vb = ((vbM*0xff + vbL)-512)*VLSB;
-      Serial.println("-----> "+String(vb)+" [V]");
+      double va = (((res[3*i+1]&0x0f)*0xff + res[3*i])-512)*VLSB;
+      Serial.println("Cell "+String(i*2+4*j)+": "+String(va)+" [V]");
+      double vb = (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
+      Serial.println("CeLl "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
     }
   } else { err_count += 1; }
- 
+
+  j++;
   if (readBytes(ltc_addr,RDCVB,res,6)) {
     for (int i = 0 ; i < 2 ; i++ ) {
-      //for (int j = 0 ; j < 3 ; j++ ) {
-      //  Serial.println("Byte "+String(3*i+j,DEC)+": "+String(res[3*i+j],HEX));
-      //}
-      byte vaM = (res[3*i+1]&0x0f) ;
-      byte vaL = res[3*i];
-      //Serial.println("Double "+String(i+4,DEC)+": "+String(vaM,HEX)+" "+String(vaL,HEX));
-      double va = ((vaM*0xff + vaL)-512)*VLSB;
-      Serial.println("+++++> "+String(va)+" [V]");
-      byte vbM = res[3*i+2]>>4;
-      byte vbL = (res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4;
-      //byte vbL = (res[3*i+1]&0xf0)>>4;
-      //Serial.println("Double "+String(i+1,DEC)+": "+String(vbM,HEX)+"'"+String(vbL,HEX)+"   "+vbM*255+"+"+vbL);
-      double vb = ((vbM*0xff + vbL)-512)*VLSB;
-      Serial.println("-----> "+String(vb)+" [V]");
+      double va = (((res[3*i+1]&0x0f)*0xff + res[3*i])-512)*VLSB;
+      Serial.println("Cell "+String(i*2+4*j)+": "+String(va)+" [V]");
+      double vb = (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
+      Serial.println("CeLl "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
     }
   } else { err_count += 1; }
+
+  /*j++;
+  if (readBytes(ltc_addr,RDCVC,res,6)) {
+    for (int i = 0 ; i < 2 ; i++ ) {
+      double va = (((res[3*i+1]&0x0f)*0xff + res[3*i])-512)*VLSB;
+      Serial.println("Cell "+String(i*2+4*j)+": "+String(va)+" [V]");
+      double vb = (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
+      Serial.println("CeLl "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
+    }
+  } else { err_count += 1; }*/
  
   return err_count;
-  spiEnd();
-}
+ }
 
 
 int readTemperatures(byte * ltc_addr){
  Serial.println("Reading temperatures on 0x"+String(ltc_addr[0],HEX));
  spiStart(ltc_addr);
- SPI.transfer(0x30);  //STTMPAD, page 22
- SPI.transfer(0x50);
+ sendMultiplebyteSPI(STTMPAD, 2);
  spiEnd();
  delay(5); // see table on page 4
 
@@ -318,8 +343,8 @@ int readTemperatures(byte * ltc_addr){
     Serial.println("External 1:  "+String((float)res[0]/10.)+" [°C]");
     Serial.println("External 2:  "+String((float)res[1]/10.)+" [°C]");
     Serial.println("Internal:    "+String((float)res[2]/10.)+" [°C]");
-    Serial.println("Self Test 1: "+String((float)res[3]/10.)+" [°C]");
-    Serial.println("Self Test 2: "+String((float)res[4]/10.)+" [°C]");
+    Serial.println("Self Test 1: "+String((float)res[3]/10.)+" [°C] (0x"+String(res[3],HEX)+")");
+    Serial.println("Self Test 2: "+String((float)res[4]/10.)+" [°C] (0x"+String(res[3],HEX)+")");
     return 0;
   } else {
     return 1;
