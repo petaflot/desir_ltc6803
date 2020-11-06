@@ -1,5 +1,9 @@
 #include <SPI.h>
 
+/*
+ * WARNING: change in CDC paramters require code tunning! current settings may not be optimal, see defaultConfig
+ */
+
 // datasheet page 22
 byte WRCFG[2] {0x01,0xc7};  // Write Configuration Register
 byte RDCFG[2] {0x02,0xce};  // Read Configuration Register
@@ -30,8 +34,15 @@ byte byteHolder;
 //byte CFFMVMC[6] = {0x09, 0x00, 0x00, 0x00, 0x00, 0x00};
 // configuration for 1st module to assert LTC6803-4
 //byte asLTC6I803[6] = {0x29, 0x00, 0x00, 0xFC, 0xA4, 0xBA};
- // TODO mask cells if less than 12 in MCxI
-byte asLTC6803[6] = {0x29, 0x00, 0b11110000, 0b00001111, 0xA4, 0xBA};
+
+byte defaultConfig[6] = {
+  0x09, // GPIOs driving, comparator off, 10-cell mode
+  0x00, // DCC disabled for cells 1-8
+  0b11110000, // Interrupts turned off for cells 1-4, DCC disabled for cells 9-12
+  0b00001111, // Interrupts turned off for cells 5-12, mask cells if less than 12 in MCxI
+  0x04, // undervoltage comparison voltage [V] = VUV-31*16*VLSB (3.256 V)
+  0x05  // overvoltage comparison voltage [V]= VOV-32*16*VLSB (4.232 V)
+ };
 
 byte WRFG[1] = {0x01};
 byte addr0[1] = {LTC1};
@@ -59,10 +70,13 @@ void setup() {
  SPI.setBitOrder(MSBFIRST);
  
   writeConfig(addr0);
+      enableAll(addr0);
   
   writeConfig(addr1);
+      enableAll(addr1);
   
   writeConfig(addr2);
+      enableAll(addr2);
   
 }
 
@@ -72,7 +86,13 @@ void loop() {
   if (readConfig(addr0,false) == 0) {
     if ( count == 0 ) {
       readConfig(addr0, true);
+      goToSleep(addr0);
+      delay(18000);
+      readConfig(addr0, true);
+      writeConfig(addr0);
+      readConfig(addr0, true);
       doSelfTest(addr0);
+      enableAll(addr0);
     } else {
       getAll(addr0);
     }
@@ -200,6 +220,41 @@ bool readBytes(byte *ltc_addr, byte *reg, byte *res, int num_bytes, bool verbose
   }
 }
 
+void enableAll(byte *ltc_addr) {
+ // enable voltage polling/conversion
+ spiStart(ltc_addr);
+ sendMultiplebyteSPI(STCVAD, 2);  // chose one of STVCAD,STOWAD,STCVDC,STOWDC
+ // what about "Poll Data" in Table 6. "Address Poll Command" on page 21?
+ //byte result;
+ //result = SPI.transfer(RDCV[0]);
+ //Serial.println("Reading voltages on 0x"+String(ltc_addr[0],HEX)+" result: "+String(result,HEX));
+ spiEnd();
+ 
+ spiStart(ltc_addr);
+ sendMultiplebyteSPI(STTMPAD, 2);
+ spiEnd();
+ 
+ delay(15); // see table on page 4 for fine-tuning
+  
+}
+
+void goToSleep(byte *ltc_addr) {
+  Serial.println("Telling 0x"+String(ltc_addr[0],HEX)+" to go to sleep (experimental)");
+  spiStart(ltc_addr);
+  sendMultiplebyteSPI(WRCFG, 2);
+  byte sleepConfig[6] = {
+    0x00, // GPIOs pull-down off, comparator in standby mode, 10-cell mode
+    defaultConfig[1],
+    defaultConfig[2],
+    defaultConfig[3],
+    defaultConfig[4],
+    defaultConfig[5]
+  };
+  sendMultiplebyteSPI(sleepConfig, 6);
+  SPI.transfer(getPEC(sleepConfig,6));
+  spiEnd();
+
+}
 
 // run ADC converter self test. see page 16
 int doSelfTest(byte *ltc_addr) {
@@ -259,8 +314,8 @@ int doSelfTest(byte *ltc_addr) {
 void writeConfig(byte *ltc_addr){
  Serial.println("Writing configuration register on 0x"+String(ltc_addr[0],HEX));spiStart(ltc_addr);
  sendMultiplebyteSPI(WRCFG, 2);
- sendMultiplebyteSPI(asLTC6803, 6);
- SPI.transfer(getPEC(asLTC6803,6));
+ sendMultiplebyteSPI(defaultConfig, 6);
+ SPI.transfer(getPEC(defaultConfig,6));
  spiEnd();
 }
 
@@ -283,15 +338,6 @@ int readConfig(byte *ltc_addr, bool verbose){
 
 int readVoltages(byte * ltc_addr){
  Serial.println("Reading voltages on 0x"+String(ltc_addr[0],HEX));
- // enable polling/conversion
- spiStart(ltc_addr);
- sendMultiplebyteSPI(STCVAD, 2);  // chose one of STVCAD,STOWAD,STCVDC,STOWDC
- // what about "Poll Data" in Table 6. "Address Poll Command" on page 21?
- //byte result;
- //result = SPI.transfer(RDCV[0]);
- //Serial.println("Reading voltages on 0x"+String(ltc_addr[0],HEX)+" result: "+String(result,HEX));
- spiEnd();
- delay(15); // see table on page 4
 
  int err_count = 0;
  byte res[6];
@@ -303,7 +349,7 @@ int readVoltages(byte * ltc_addr){
       double va = (((res[3*i+1]&0x0f)*0xff + res[3*i])-512)*VLSB;
       Serial.println("Cell "+String(i*2+4*j)+": "+String(va)+" [V]");
       double vb = (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
-      Serial.println("CeLl "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
+      Serial.println("Cell "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
     }
   } else { err_count += 1; }
 
@@ -313,7 +359,7 @@ int readVoltages(byte * ltc_addr){
       double va = (((res[3*i+1]&0x0f)*0xff + res[3*i])-512)*VLSB;
       Serial.println("Cell "+String(i*2+4*j)+": "+String(va)+" [V]");
       double vb = (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
-      Serial.println("CeLl "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
+      Serial.println("Cell "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
     }
   } else { err_count += 1; }
 
@@ -323,7 +369,7 @@ int readVoltages(byte * ltc_addr){
       double va = (((res[3*i+1]&0x0f)*0xff + res[3*i])-512)*VLSB;
       Serial.println("Cell "+String(i*2+4*j)+": "+String(va)+" [V]");
       double vb = (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
-      Serial.println("CeLl "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
+      Serial.println("Cell "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
     }
   } else { err_count += 1; }*/
  
@@ -333,10 +379,6 @@ int readVoltages(byte * ltc_addr){
 
 int readTemperatures(byte * ltc_addr){
  Serial.println("Reading temperatures on 0x"+String(ltc_addr[0],HEX));
- spiStart(ltc_addr);
- sendMultiplebyteSPI(STTMPAD, 2);
- spiEnd();
- delay(5); // see table on page 4
 
   byte res[5];
   if (readBytes(ltc_addr,RDTMP,res,5)) {
