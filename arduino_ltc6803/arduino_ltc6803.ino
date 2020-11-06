@@ -23,6 +23,8 @@ byte RDDGNR[2] {0x54,0x6b}; // read diagnose register
 byte STCVDC[2] {0x60,0xe7}; // start cell voltage ADC conversions and poll status, with discharge permitted
 byte STOWDC[2] {0x70,0x97}; // start open-wire ADC conversions and poll status, with discharge permitted
 
+unsigned long LOOP_OVERFLOW = 0;
+
 #define VLSB .0015 // 1.5 mV
 
 #define LTC1 0x80 // Board Address for 1st LTC6803G-2
@@ -56,6 +58,7 @@ void setup() {
  pinMode(11, OUTPUT);
  pinMode(12, INPUT);
  pinMode(13, OUTPUT);
+ pinMode(13, OUTPUT); // battery-side digital isolator enable switch
  digitalWrite(10, HIGH);
  Serial.begin(9600);
  Serial.println("##################################################################");
@@ -68,7 +71,10 @@ void setup() {
  SPI.setClockDivider(SPI_CLOCK_DIV64); // as low as possible, 128 probabbly the lowest value for Nano
  SPI.setDataMode(SPI_MODE3);
  SPI.setBitOrder(MSBFIRST);
- 
+
+ // enable battery-side digital isolator
+ digitalWrite(13, LOW);
+
   writeConfig(addr0);
       enableAll(addr0);
   
@@ -87,11 +93,14 @@ void loop() {
     if ( count == 0 ) {
       readConfig(addr0, true);
       goToSleep(addr0);
-      delay(18000);
-      readConfig(addr0, true);
+      delay(1800);
+      Serial.println("Rewriting config to enable CDC (comparator duty cycle) in 1 [s].");
+      delay(1000);
+      LOOP_OVERFLOW += 1;
       writeConfig(addr0);
-      readConfig(addr0, true);
       doSelfTest(addr0);
+      Serial.println("Test always fails. Enabling polling method in 1 [s].");
+      delay(1000);
       enableAll(addr0);
     } else {
       getAll(addr0);
@@ -239,7 +248,8 @@ void enableAll(byte *ltc_addr) {
 }
 
 void goToSleep(byte *ltc_addr) {
-  Serial.println("Telling 0x"+String(ltc_addr[0],HEX)+" to go to sleep (experimental)");
+  Serial.println("Telling 0x"+String(ltc_addr[0],HEX)+" to go to sleep... don't let the bed bugs byte!");
+  Serial.println("zzzzzzzzzzzzzzzzzzzzzzzzzzzz"+String(LOOP_OVERFLOW)+"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
   spiStart(ltc_addr);
   sendMultiplebyteSPI(WRCFG, 2);
   byte sleepConfig[6] = {
@@ -265,14 +275,38 @@ int doSelfTest(byte *ltc_addr) {
   byte res[2];
   // read diagnose register, 2 bytes
   readBytes(ltc_addr,RDDGNR,res,2);
-  Serial.println("DGNR0: 0x"+String(res[0],HEX));
-  Serial.println("DGNR1: 0x"+String(res[1],HEX));
+  //Serial.println("DGNR0: 0x"+String(res[0],HEX));
+  //Serial.println("DGNR1: 0x"+String(res[1],HEX));
+  
+  double ref_voltage = (((res[1]&0x0f)*0xff + res[0])-512)*VLSB;
+  if (ref_voltage >= 2.1 && ref_voltage <= 2.9 ) {
+    Serial.println("Reference voltage nominal: "+String(ref_voltage)+" [V]");
+  } else {
+    Serial.println("ERROR: Reference voltage out of range: "+String(ref_voltage)+" [V]");
+    err_count++;
+  }
+  
+  //double ref_voltage = (((res[1]&0x15)*255+res[0])-512)*VLSB;
+  //Serial.println("REF: "+String(ref_voltage)+" [V]");
+  if ((res[1]&0x10)>>5 == 1) {
+    Serial.println("ERROR: Mux failure");
+    err_count++;
+  }
+  
+  Serial.println("Revision code: "+String((res[1]&0xc0)>>6,HEX));
+  
+  byte temperatures[5];
+  if (readBytes(ltc_addr,RDTMP,res,5)) {
+    Serial.println("Temperature Self Test 1: "+String((float)res[3]/10.)+" [°C] (0x"+String(res[3],HEX)+")");
+    Serial.println("Temperature Self Test 2: "+String((float)res[4]/10.)+" [°C] (0x"+String(res[3],HEX)+")");
+  } else {
+    Serial.println("ERROR: Temperature read failure");
+  }
+
   
   // read flag register, 3 bytes
   readBytes(ltc_addr,RDFLG,res,3);
-  Serial.println("FLGR0: 0x"+String(res[0],HEX));
-  Serial.println("FLGR1: 0x"+String(res[1],HEX));
-  Serial.println("FLGR2: 0x"+String(res[1],HEX));
+  Serial.println("Flag register: [FLGR2 "+String(res[2],HEX)+" "+String(res[1],HEX)+" "+String(res[0],HEX)+" FLGR0]");
   
   // TODO PLINT poll Interrupt status
 
@@ -289,16 +323,32 @@ int doSelfTest(byte *ltc_addr) {
   
   byte voltages[18];
   if (readBytes(ltc_addr,RDCV,voltages,18)) {
-    for (int i = 0 ; i < 18 ; i++ ) {
-      Serial.println("CVR0"+String(i,DEC)+": "+String(voltages[i],HEX));
-    }
+    Serial.println("Voltage register: [CVR17 "+
+        String(voltages[17],HEX)+String(voltages[16],HEX)+String(voltages[15],HEX)+" "+
+        String(voltages[14],HEX)+String(voltages[13],HEX)+String(voltages[12],HEX)+" "+
+        String(voltages[11],HEX)+String(voltages[10],HEX)+String(voltages[9], HEX)+" "+
+        String(voltages[8], HEX)+String(voltages[7], HEX)+String(voltages[6], HEX)+" "+
+        String(voltages[5], HEX)+String(voltages[4], HEX)+String(voltages[3], HEX)+" "+
+        String(voltages[2], HEX)+String(voltages[1], HEX)+String(voltages[0], HEX)+
+        " CVR00]"
+      );
+    //for (int i = 0 ; i < 18 ; i++ ) {
+    //  Serial.println("CVR0"+String(i,DEC)+": "+String(voltages[i],HEX));
+    //}
   } else { err_count += 1; }
 
-  byte temperatures[5];
   if (readBytes(ltc_addr,RDTMP,temperatures,5)) {
-    for (int i = 0 ; i < 5 ; i++ ) {
-      Serial.println("TMPR"+String(i,DEC)+": "+String(temperatures[i],HEX));
-    }
+    Serial.println("Temperature registers: [TMPR4 "+
+        String(temperatures[4], HEX)+" "+
+        String(temperatures[3], HEX)+" "+
+        String(temperatures[2], HEX)+" "+
+        String(temperatures[1], HEX)+" "+
+        String(temperatures[0], HEX)+
+        " TMPR0]"
+      );
+    //for (int i = 0 ; i < 5 ; i++ ) {
+    //  Serial.println("TMPR"+String(i,DEC)+": "+String(temperatures[i],HEX));
+    //}
   } else { err_count += 1; }
 
   return err_count;
@@ -341,6 +391,7 @@ int readVoltages(byte * ltc_addr){
 
  int err_count = 0;
  byte res[6];
+ unsigned int total_vRead = 0;
  
 
   int j = 0;
@@ -348,8 +399,10 @@ int readVoltages(byte * ltc_addr){
     for (int i = 0 ; i < 2 ; i++ ) {
       double va = (((res[3*i+1]&0x0f)*0xff + res[3*i])-512)*VLSB;
       Serial.println("Cell "+String(i*2+4*j)+": "+String(va)+" [V]");
+      total_vRead += (((res[3*i+1]&0x0f)*0xff + res[3*i])-512);
       double vb = (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
       Serial.println("Cell "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
+      total_vRead += (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
     }
   } else { err_count += 1; }
 
@@ -358,8 +411,10 @@ int readVoltages(byte * ltc_addr){
     for (int i = 0 ; i < 2 ; i++ ) {
       double va = (((res[3*i+1]&0x0f)*0xff + res[3*i])-512)*VLSB;
       Serial.println("Cell "+String(i*2+4*j)+": "+String(va)+" [V]");
+      total_vRead += (((res[3*i+1]&0x0f)*0xff + res[3*i])-512);
       double vb = (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
       Serial.println("Cell "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
+      total_vRead += (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
     }
   } else { err_count += 1; }
 
@@ -368,10 +423,13 @@ int readVoltages(byte * ltc_addr){
     for (int i = 0 ; i < 2 ; i++ ) {
       double va = (((res[3*i+1]&0x0f)*0xff + res[3*i])-512)*VLSB;
       Serial.println("Cell "+String(i*2+4*j)+": "+String(va)+" [V]");
+      total_vRead += (((res[3*i+1]&0x0f)*0xff + res[3*i])-512);
       double vb = (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
       Serial.println("Cell "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
+      total_vRead += (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
     }
   } else { err_count += 1; }*/
+  Serial.println("Total Voltage: "+String(total_vRead*VLSB)+" [V]");
  
   return err_count;
  }
@@ -385,8 +443,6 @@ int readTemperatures(byte * ltc_addr){
     Serial.println("External 1:  "+String((float)res[0]/10.)+" [°C]");
     Serial.println("External 2:  "+String((float)res[1]/10.)+" [°C]");
     Serial.println("Internal:    "+String((float)res[2]/10.)+" [°C]");
-    Serial.println("Self Test 1: "+String((float)res[3]/10.)+" [°C] (0x"+String(res[3],HEX)+")");
-    Serial.println("Self Test 2: "+String((float)res[4]/10.)+" [°C] (0x"+String(res[3],HEX)+")");
     return 0;
   } else {
     return 1;
