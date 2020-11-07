@@ -1,7 +1,23 @@
 #include <SPI.h>
 
 /*
+ * LTC6803 driver for Arduino
+ * 
+ * This file contains helpers to communicate with SPI-enabled LTC6803 battery monitor chip family.
+ * 
+ * Author:  JCZD
+ * Date:    2020-11
+ * License: GPLv2
+ * 
  * WARNING: change in CDC paramters require code tunning! current settings may not be optimal, see defaultConfig
+ * 
+ * TODOs, in order of relative importance (more urgent first)
+ * - do what's needed to remove the above cdc-related warning
+ * - watchdog
+ * - add helper functions for GPIOs
+ * - improve parsing of CFGR config register bytes (make it human-friedly)
+ * - investigate why self-test won't return the expected values
+ * - broadcast commands
  */
 
 // datasheet page 22
@@ -190,7 +206,7 @@ void spiEnd(uint8_t flag) { //Wait poll Status
 }
 
 // Send multiple data to LTC
-void sendMultiplebyteSPI(byte * data, int n){
+void sendBytes(byte * data, int n){
  for (int i = 0; i<n; i++){
    SPI.transfer(data[i]);
    }
@@ -211,7 +227,7 @@ bool readBytes(byte *ltc_addr, byte *reg, byte *res, int num_bytes, bool verbose
   //Serial.println("Reading "+String(num_bytes,DEC)+"bytes + PEC");
   
   spiStart(ltc_addr);
-  sendMultiplebyteSPI(reg, 2);
+  sendBytes(reg, 2);
    for(int i = 0; i < num_bytes; i++){
     //res[i] = SPI.transfer(reg[0]);
     res[i] = SPI.transfer(RDCV[0]);
@@ -232,7 +248,7 @@ bool readBytes(byte *ltc_addr, byte *reg, byte *res, int num_bytes, bool verbose
 void enableAll(byte *ltc_addr) {
  // enable voltage polling/conversion
  spiStart(ltc_addr);
- sendMultiplebyteSPI(STCVAD, 2);  // chose one of STVCAD,STOWAD,STCVDC,STOWDC
+ sendBytes(STCVAD, 2);  // chose one of STVCAD,STOWAD,STCVDC,STOWDC
  // what about "Poll Data" in Table 6. "Address Poll Command" on page 21?
  //byte result;
  //result = SPI.transfer(RDCV[0]);
@@ -240,7 +256,7 @@ void enableAll(byte *ltc_addr) {
  spiEnd();
  
  spiStart(ltc_addr);
- sendMultiplebyteSPI(STTMPAD, 2);
+ sendBytes(STTMPAD, 2);
  spiEnd();
  
  delay(15); // see table on page 4 for fine-tuning
@@ -251,7 +267,7 @@ void goToSleep(byte *ltc_addr) {
   Serial.println("Telling 0x"+String(ltc_addr[0],HEX)+" to go to sleep... don't let the bed bugs byte!");
   Serial.println("zzzzzzzzzzzzzzzzzzzzzzzzzzzz"+String(LOOP_OVERFLOW)+"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
   spiStart(ltc_addr);
-  sendMultiplebyteSPI(WRCFG, 2);
+  sendBytes(WRCFG, 2);
   byte sleepConfig[6] = {
     0x00, // GPIOs pull-down off, comparator in standby mode, 10-cell mode
     defaultConfig[1],
@@ -260,7 +276,7 @@ void goToSleep(byte *ltc_addr) {
     defaultConfig[4],
     defaultConfig[5]
   };
-  sendMultiplebyteSPI(sleepConfig, 6);
+  sendBytes(sleepConfig, 6);
   SPI.transfer(getPEC(sleepConfig,6));
   spiEnd();
 
@@ -286,8 +302,6 @@ int doSelfTest(byte *ltc_addr) {
     err_count++;
   }
   
-  //double ref_voltage = (((res[1]&0x15)*255+res[0])-512)*VLSB;
-  //Serial.println("REF: "+String(ref_voltage)+" [V]");
   if ((res[1]&0x10)>>5 == 1) {
     Serial.println("ERROR: Mux failure");
     err_count++;
@@ -313,9 +327,9 @@ int doSelfTest(byte *ltc_addr) {
   
   spiStart(ltc_addr);
   // start diagnose and poll status
-  sendMultiplebyteSPI(DAGN, 2);
+  sendBytes(DAGN, 2);
   spiEnd();
-  delay(50);
+  delay(20);
   // TODO PLADC poll ADC converter status
   
   // so far this has always failed ; see page 16
@@ -323,6 +337,9 @@ int doSelfTest(byte *ltc_addr) {
   
   byte voltages[18];
   if (readBytes(ltc_addr,RDCV,voltages,18)) {
+    //for (int i = 0 ; i < 18 ; i++ ) {
+    //  Serial.println("CVR0"+String(i,DEC)+": "+String(voltages[i],HEX));
+    //}
     Serial.println("Voltage register: [CVR17 "+
         String(voltages[17],HEX)+String(voltages[16],HEX)+String(voltages[15],HEX)+" "+
         String(voltages[14],HEX)+String(voltages[13],HEX)+String(voltages[12],HEX)+" "+
@@ -332,12 +349,12 @@ int doSelfTest(byte *ltc_addr) {
         String(voltages[2], HEX)+String(voltages[1], HEX)+String(voltages[0], HEX)+
         " CVR00]"
       );
-    //for (int i = 0 ; i < 18 ; i++ ) {
-    //  Serial.println("CVR0"+String(i,DEC)+": "+String(voltages[i],HEX));
-    //}
   } else { err_count += 1; }
 
   if (readBytes(ltc_addr,RDTMP,temperatures,5)) {
+    //for (int i = 0 ; i < 5 ; i++ ) {
+    //  Serial.println("TMPR"+String(i,DEC)+": "+String(temperatures[i],HEX));
+    //}
     Serial.println("Temperature registers: [TMPR4 "+
         String(temperatures[4], HEX)+" "+
         String(temperatures[3], HEX)+" "+
@@ -346,11 +363,13 @@ int doSelfTest(byte *ltc_addr) {
         String(temperatures[0], HEX)+
         " TMPR0]"
       );
-    //for (int i = 0 ; i < 5 ; i++ ) {
-    //  Serial.println("TMPR"+String(i,DEC)+": "+String(temperatures[i],HEX));
-    //}
   } else { err_count += 1; }
 
+  if ( err_count == 0 ) {
+    Serial.println("Diagnotics finished with no obvious errors.");
+  } else {
+    Serial.println("Diagnotics finished with "+String(err_count,DEC)+" errors.");
+  }
   return err_count;
 }
 
@@ -363,8 +382,8 @@ int doSelfTest(byte *ltc_addr) {
 */
 void writeConfig(byte *ltc_addr){
  Serial.println("Writing configuration register on 0x"+String(ltc_addr[0],HEX));spiStart(ltc_addr);
- sendMultiplebyteSPI(WRCFG, 2);
- sendMultiplebyteSPI(defaultConfig, 6);
+ sendBytes(WRCFG, 2);
+ sendBytes(defaultConfig, 6);
  SPI.transfer(getPEC(defaultConfig,6));
  spiEnd();
 }
@@ -429,7 +448,7 @@ int readVoltages(byte * ltc_addr){
       total_vRead += (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
     }
   } else { err_count += 1; }*/
-  Serial.println("Total Voltage: "+String(total_vRead*VLSB)+" [V]");
+  Serial.println("Total: "+String(total_vRead*VLSB)+" [V]");
  
   return err_count;
  }
