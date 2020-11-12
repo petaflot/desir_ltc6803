@@ -417,10 +417,10 @@ int readVoltages(byte * ltc_addr){
   if (readBytes(ltc_addr,RDCVA,res,6)) {
     for (int i = 0 ; i < 2 ; i++ ) {
       double va = (((res[3*i+1]&0x0f)*0xff + res[3*i])-512)*VLSB;
-      Serial.println("Cell "+String(i*2+4*j)+": "+String(va)+" [V]");
+      Serial.println("Cell "+String(i*2+4*j+1)+": "+String(va)+" [V]");
       total_vRead += (((res[3*i+1]&0x0f)*0xff + res[3*i])-512);
       double vb = (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
-      Serial.println("Cell "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
+      Serial.println("Cell "+String(1+i*2+4*j+1)+": "+String(vb)+" [V]");
       total_vRead += (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
     }
   } else { err_count += 1; }
@@ -429,10 +429,10 @@ int readVoltages(byte * ltc_addr){
   if (readBytes(ltc_addr,RDCVB,res,6)) {
     for (int i = 0 ; i < 2 ; i++ ) {
       double va = (((res[3*i+1]&0x0f)*0xff + res[3*i])-512)*VLSB;
-      Serial.println("Cell "+String(i*2+4*j)+": "+String(va)+" [V]");
+      Serial.println("Cell "+String(i*2+4*j+1)+": "+String(va)+" [V]");
       total_vRead += (((res[3*i+1]&0x0f)*0xff + res[3*i])-512);
       double vb = (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
-      Serial.println("Cell "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
+      Serial.println("Cell "+String(1+i*2+4*j+1)+": "+String(vb)+" [V]");
       total_vRead += (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
     }
   } else { err_count += 1; }
