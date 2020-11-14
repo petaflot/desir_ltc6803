@@ -1,4 +1,4 @@
-#include <SPI.h>
+  #include <SPI.h>
 
 /*
  * LTC6803 driver for Arduino
@@ -47,6 +47,10 @@ unsigned long LOOP_OVERFLOW = 0;
 #define LTC2 0x81 // Board Address for 2nd LTC6803G-2
 #define LTC3 0x82 // Board Address for 3rd LTC6803G-2
 
+//byte DEFAULT_MODE[2] {STOWAD[0], STOWAD[1]};
+
+#define ENABLE 9
+
 byte byteHolder;
 // configuration for 1st module of LTC6803-4 (negate LTC6803-4)
 //byte CFFMVMC[6] = {0x09, 0x00, 0x00, 0x00, 0x00, 0x00};
@@ -74,9 +78,9 @@ void setup() {
  pinMode(11, OUTPUT);
  pinMode(12, INPUT);
  pinMode(13, OUTPUT);
- pinMode(13, OUTPUT); // battery-side digital isolator enable switch
+ pinMode(ENABLE, OUTPUT); // battery-side digital isolator enable switch
  digitalWrite(10, HIGH);
- Serial.begin(9600);
+ Serial.begin(38400);
  Serial.println("##################################################################");
  Serial.println("#                                                                #");
  Serial.println("# LTC6803 Interrogator                                           #");
@@ -84,40 +88,43 @@ void setup() {
  Serial.println("##################################################################");
  
  SPI.begin();
- SPI.setClockDivider(SPI_CLOCK_DIV64); // as low as possible, 128 probabbly the lowest value for Nano
+ SPI.setClockDivider(SPI_CLOCK_DIV64); // as low as possible, 128 probabbly the lowest value for Nano (source: IRC). 64 seems to work fine though.
  SPI.setDataMode(SPI_MODE3);
  SPI.setBitOrder(MSBFIRST);
 
- // enable battery-side digital isolator
- digitalWrite(13, LOW);
+ comm_enable();
 
-  writeConfig(addr0);
-      enableAll(addr0);
+ writeConfig(addr0);
+ enableAll(addr0);//, DEFAULT_MODE);
   
-  writeConfig(addr1);
-      enableAll(addr1);
+ writeConfig(addr1);
+ enableAll(addr1);//, DEFAULT_MODE);
   
-  writeConfig(addr2);
-      enableAll(addr2);
+ writeConfig(addr2);
+ enableAll(addr2);//, DEFAULT_MODE);
   
+ comm_disable();
 }
 
 int count = 0;
 
 void loop() {
+  comm_enable();
+
   if (readConfig(addr0,false) == 0) {
-    if ( count == 0 ) {
+     if ( count == 0 ) {
       readConfig(addr0, true);
       goToSleep(addr0);
       delay(1800);
       Serial.println("Rewriting config to enable CDC (comparator duty cycle) in 1 [s].");
       delay(1000);
-      LOOP_OVERFLOW += 1;
+
+     LOOP_OVERFLOW += 1;
       writeConfig(addr0);
       doSelfTest(addr0);
       Serial.println("Test always fails. Enabling polling method in 1 [s].");
       delay(1000);
-      enableAll(addr0);
+      enableAll(addr0);//, DEFAULT_MODE);
     } else {
       getAll(addr0);
     }
@@ -141,6 +148,8 @@ void loop() {
     }
   }
   
+  comm_disable();
+
   delay(2000);
   if ( count == 0 ) {
     count = 10;
@@ -165,8 +174,22 @@ void getAll(byte * ltc_addr) {
 }
 
 
+/*
+ * enable battery-side digital isolator
+ */
+void comm_enable() {
+  digitalWrite(ENABLE, HIGH);
+  delay(20);
 
+}
 
+/*
+ * disable battery-side digital isolator
+ */
+void comm_disable() {
+  digitalWrite(ENABLE, LOW);
+  delay(15);
+}
 
 
 // Calculate PEC, n is  size of DIN
@@ -245,10 +268,13 @@ bool readBytes(byte *ltc_addr, byte *reg, byte *res, int num_bytes, bool verbose
   }
 }
 
-void enableAll(byte *ltc_addr) {
+/*
+ * enable voltage and temperature polling in the selected mode
+ */
+void enableAll(byte *ltc_addr) {//, byte mode) {
  // enable voltage polling/conversion
  spiStart(ltc_addr);
- sendBytes(STCVAD, 2);  // chose one of STVCAD,STOWAD,STCVDC,STOWDC
+ sendBytes(STOWAD, 2);  // chose one of STVCAD,STOWAD,STCVDC,STOWDC
  // what about "Poll Data" in Table 6. "Address Poll Command" on page 21?
  //byte result;
  //result = SPI.transfer(RDCV[0]);
@@ -263,6 +289,9 @@ void enableAll(byte *ltc_addr) {
   
 }
 
+/*
+ * tells the LTC to go to sleep mode
+ */
 void goToSleep(byte *ltc_addr) {
   Serial.println("Telling 0x"+String(ltc_addr[0],HEX)+" to go to sleep... don't let the bed bugs byte!");
   Serial.println("zzzzzzzzzzzzzzzzzzzzzzzzzzzz"+String(LOOP_OVERFLOW)+"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
@@ -282,7 +311,9 @@ void goToSleep(byte *ltc_addr) {
 
 }
 
-// run ADC converter self test. see page 16
+/* 
+ * run ADC converter self test. see page 16 
+ */
 int doSelfTest(byte *ltc_addr) {
   int err_count = 0;
   
@@ -373,7 +404,8 @@ int doSelfTest(byte *ltc_addr) {
   return err_count;
 }
 
-/* Write Configuration Registers for LTC6803-4 using Broadcast Write
+/* 
+ * Write Configuration Registers for LTC6803-4 NOT using Broadcast Write
  *
  * GPIO1 is CFRG0&0x20
  * GPIO2 is CFRG0&0x40
@@ -389,7 +421,9 @@ void writeConfig(byte *ltc_addr){
 }
 
 
-//// Read Cell Configuration Registers for LTC6803-4 using Addressable Read
+/*
+ * Read Cell Configuration Registers for LTC6803-4 using Addressable Read
+ */
 int readConfig(byte *ltc_addr, bool verbose){
   if (verbose){ Serial.println("Reading configuration register on 0x"+String(ltc_addr[0],HEX));}
   byte res[6];
@@ -405,6 +439,9 @@ int readConfig(byte *ltc_addr, bool verbose){
  }
 
 
+/*
+ * Read Cell Voltage Registers for LTC6803-4 using Addressable Read and converts to SI units
+ */
 int readVoltages(byte * ltc_addr){
  Serial.println("Reading voltages on 0x"+String(ltc_addr[0],HEX));
 
@@ -454,6 +491,9 @@ int readVoltages(byte * ltc_addr){
  }
 
 
+/*
+ * Read Temperature Registers for LTC6803-4 using Addressable Read and converts to SI units
+ */
 int readTemperatures(byte * ltc_addr){
  Serial.println("Reading temperatures on 0x"+String(ltc_addr[0],HEX));
 
