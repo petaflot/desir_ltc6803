@@ -39,8 +39,6 @@ byte RDDGNR[2] {0x54,0x6b}; // read diagnose register
 byte STCVDC[2] {0x60,0xe7}; // start cell voltage ADC conversions and poll status, with discharge permitted
 byte STOWDC[2] {0x70,0x97}; // start open-wire ADC conversions and poll status, with discharge permitted
 
-unsigned long LOOP_OVERFLOW = 0;
-
 #define VLSB .0015 // 1.5 mV
 
 #define LTC1 0x80 // Board Address for 1st LTC6803G-2
@@ -67,9 +65,7 @@ byte defaultConfig[6] = {
  };
 
 byte WRFG[1] = {0x01};
-byte addr0[1] = {LTC1};
-byte addr1[1] = {LTC2};
-byte addr2[1] = {LTC3};
+byte addr[1] = {LTC1};
 
 void setup() {
  // put your setup code here, to run once:
@@ -81,55 +77,115 @@ void setup() {
  pinMode(ENABLE, OUTPUT); // battery-side digital isolator enable switch
  digitalWrite(10, HIGH);
  Serial.begin(38400);
- Serial.println("##################################################################");
- Serial.println("#                                                                #");
- Serial.println("# LTC6803 Interrogator                                           #");
- Serial.println("#                                                                #");
- Serial.println("##################################################################");
+ //Serial.println("##################################################################");
+ //Serial.println("#                                                                #");
+ //Serial.println("# LTC6803 Interrogator                                           #");
+ //Serial.println("#                                                                #");
+ //Serial.println("##################################################################");
+ Serial.println("LTC6803 Interrogator ready ; try Ewdv or one of e123rSsTdDcot");
  
  SPI.begin();
  SPI.setClockDivider(SPI_CLOCK_DIV64); // as low as possible, 128 probabbly the lowest value for Nano (source: IRC). 64 seems to work fine though.
  SPI.setDataMode(SPI_MODE3);
  SPI.setBitOrder(MSBFIRST);
 
- comm_enable();
 
- writeConfig(addr0);
- enableAll(addr0);//, DEFAULT_MODE);
-  
- writeConfig(addr1);
- enableAll(addr1);//, DEFAULT_MODE);
-  
- writeConfig(addr2);
- enableAll(addr2);//, DEFAULT_MODE);
-  
- comm_disable();
 }
 
-int count = 0;
+bool set_conversion = true;
+bool set_discharge = false;
 
 void loop() {
-  comm_enable();
+  byte ser_byte;
 
-  if (readConfig(addr0,false) == 0) {
-     if ( count == 0 ) {
-      readConfig(addr0, true);
-      goToSleep(addr0);
-      delay(1800);
-      Serial.println("Rewriting config to enable CDC (comparator duty cycle) in 1 [s].");
-      delay(1000);
+  //comm_enable();
+  if (Serial.available() > 0) {
+    ser_byte = Serial.read();
 
-     LOOP_OVERFLOW += 1;
-      writeConfig(addr0);
-      doSelfTest(addr0);
-      Serial.println("Test always fails. Enabling polling method in 1 [s].");
-      delay(1000);
-      enableAll(addr0);//, DEFAULT_MODE);
-    } else {
-      getAll(addr0);
+    /*if (ser_byte == 'x') {
+      comm_enable();
+
+      writeConfig(addr);
+      enable_polling(addr, true, false);
+      if (readConfig(addr,false) == 0) {
+        readConfig(addr, true);
+        writeConfig(addr);
+        
+        doSelfTest(addr);
+        //Serial.println("Test always fails. Enabling polling method in 1 [s].");
+        enable_polling(addr, true, false);
+        readVoltages(addr);
+        readTemperatures(addr);
+    }
+    comm_disable();
+    
+  } else */
+  if (ser_byte == '1') {
+      addr[0] = {LTC1};
+      //Serial.println("Selected LTC @ 0x"+String(addr[0],HEX));
+    } else if (ser_byte == '2') {
+      addr[0] = {LTC2};
+      //Serial.println("Selected LTC @ 0x"+String(addr[0],HEX));
+    } else if (ser_byte == '3') {
+      addr[0] = {LTC3};
+      //Serial.println("Selected LTC @ 0x"+String(addr[0],HEX));
+    } else if (ser_byte == 'E') {
+      comm_enable();
+    } else if (ser_byte == 'e') {
+      comm_disable();
+    } else if (ser_byte == 'w') {
+      writeConfig(addr);
+    } else if (ser_byte == 'r') {
+      readConfig(addr, true);
+    } else if (ser_byte == 'S') {
+      goToSleep(addr);
+    } else if (ser_byte == 's') {
+      //Serial.println("Rewriting config to enable CDC (comparator duty cycle) in 1 [s].");
+      writeConfig(addr);
+    } else if (ser_byte == 'T') {
+      doSelfTest(addr);
+
+    } else if (ser_byte == 'd') {
+      set_discharge = false;
+      enable_polling(addr, set_conversion, set_discharge);
+    } else if (ser_byte == 'D') {
+      set_discharge = true;
+      enable_polling(addr, set_conversion, set_discharge);
+    
+    } else if (ser_byte == 'c') {
+      set_conversion = true;
+      enable_polling(addr, set_conversion, set_discharge);
+    } else if (ser_byte == 'o') {
+      set_conversion = false;
+      enable_polling(addr, set_conversion, set_discharge);
+
+    } else if (ser_byte == 'v') {
+      readVoltages(addr);
+    } else if (ser_byte == 't') {
+      readTemperatures(addr);
+        
+    /*
+     * help disabled due to low memory
+     * } else if (ser_byte == 'h') {
+      Serial.println("E\tenable communication with LTCs");
+      Serial.println("e\tdisable communication with LTCs");
+      Serial.println("r\tread config");
+      Serial.println("w\twrite config");
+      Serial.println("T\tdo self test");
+      Serial.println("S\tput LTC in sleep mode");
+      Serial.println("s\twake LTC");
+      Serial.println("D\tenable discharge");
+      Serial.println("d\tdisable discharge");
+      Serial.println("v\tread voltages");
+      Serial.println("t\tread temperatures");
+      Serial.println("c\tstart cell voltage ADC conversions and poll status");
+      Serial.println("o\tstart open-wire ADC conversions and poll status");
+      Serial.println("0\tselect LTC at 0x80");
+      Serial.println("1\tselect LTC at 0x81");
+      Serial.println("2\tselect LTC at 0x82");        */
     }
   }
-  
+/*
   if (readConfig(addr1,false) == 0) {
     if ( count == 0 ) {
       readConfig(addr1, true);
@@ -166,12 +222,9 @@ void loop() {
 //  spiEnd();
 //Serial.println("Loop done..");
  delay(2000);
+ */
 }
 
-void getAll(byte * ltc_addr) {
-  readVoltages(ltc_addr);
-  readTemperatures(ltc_addr);
-}
 
 
 /*
@@ -271,10 +324,28 @@ bool readBytes(byte *ltc_addr, byte *reg, byte *res, int num_bytes, bool verbose
 /*
  * enable voltage and temperature polling in the selected mode
  */
-void enableAll(byte *ltc_addr) {//, byte mode) {
+void enable_polling(byte *ltc_addr, bool set_conversion, bool set_discharge) {
  // enable voltage polling/conversion
  spiStart(ltc_addr);
- sendBytes(STOWAD, 2);  // chose one of STVCAD,STOWAD,STCVDC,STOWDC
+
+  if (set_conversion == true) {
+    if (set_discharge == true) {
+      Serial.println("Enabling Cell Voltage ADC Conversions and Poll Status, with Discharge Permitted");
+      sendBytes(STCVDC, 2);
+    } else {
+      Serial.println("Enabling Cell Voltage ADC Conversions and Poll Status");
+      sendBytes(STCVAD, 2);
+    }
+  } else {
+    if (set_discharge == true) {
+      Serial.println("Open-Wire ADC Conversions and Poll Status, with Discharge Permitted");
+      sendBytes(STOWDC, 2);
+    } else {
+      Serial.println("Open-Wire ADC Conversions and Poll Status");
+      sendBytes(STOWAD, 2);
+    }
+  }
+
  // what about "Poll Data" in Table 6. "Address Poll Command" on page 21?
  //byte result;
  //result = SPI.transfer(RDCV[0]);
@@ -293,8 +364,7 @@ void enableAll(byte *ltc_addr) {//, byte mode) {
  * tells the LTC to go to sleep mode
  */
 void goToSleep(byte *ltc_addr) {
-  Serial.println("Telling 0x"+String(ltc_addr[0],HEX)+" to go to sleep... don't let the bed bugs byte!");
-  Serial.println("zzzzzzzzzzzzzzzzzzzzzzzzzzzz"+String(LOOP_OVERFLOW)+"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
+  Serial.println("Putting 0x"+String(ltc_addr[0],HEX)+" to sleep");
   spiStart(ltc_addr);
   sendBytes(WRCFG, 2);
   byte sleepConfig[6] = {
@@ -317,15 +387,13 @@ void goToSleep(byte *ltc_addr) {
 int doSelfTest(byte *ltc_addr) {
   int err_count = 0;
   
-  Serial.println("Running diagnose on 0x"+String(ltc_addr[0],HEX));
+  Serial.println("Running self-test on 0x"+String(ltc_addr[0],HEX));
   
   byte res[2];
   // read diagnose register, 2 bytes
   readBytes(ltc_addr,RDDGNR,res,2);
-  //Serial.println("DGNR0: 0x"+String(res[0],HEX));
-  //Serial.println("DGNR1: 0x"+String(res[1],HEX));
   
-  double ref_voltage = (((res[1]&0x0f)*0xff + res[0])-512)*VLSB;
+  double ref_voltage = (((res[1]&0x0f)*0x100 + res[0])-512)*VLSB;
   if (ref_voltage >= 2.1 && ref_voltage <= 2.9 ) {
     Serial.println("Reference voltage nominal: "+String(ref_voltage)+" [V]");
   } else {
@@ -346,6 +414,7 @@ int doSelfTest(byte *ltc_addr) {
     Serial.println("Temperature Self Test 2: "+String((float)res[4]/10.)+" [°C] (0x"+String(res[3],HEX)+")");
   } else {
     Serial.println("ERROR: Temperature read failure");
+    err_count += 1;
   }
 
   
@@ -364,7 +433,8 @@ int doSelfTest(byte *ltc_addr) {
   // TODO PLADC poll ADC converter status
   
   // so far this has always failed ; see page 16
-  Serial.println("All bytes below should read 0x555 or 0xAAA");
+  Serial.println("All bytes below should read 0x555 or 0xAAA (known to fail)");
+  err_count += 2;
   
   byte voltages[18];
   if (readBytes(ltc_addr,RDCV,voltages,18)) {
@@ -453,36 +523,36 @@ int readVoltages(byte * ltc_addr){
   int j = 0;
   if (readBytes(ltc_addr,RDCVA,res,6)) {
     for (int i = 0 ; i < 2 ; i++ ) {
-      double va = (((res[3*i+1]&0x0f)*0xff + res[3*i])-512)*VLSB;
+      double va = (((res[3*i+1]&0x0f)*0x100 + res[3*i])-512)*VLSB;
       Serial.println("Cell "+String(i*2+4*j+1)+": "+String(va)+" [V]");
-      total_vRead += (((res[3*i+1]&0x0f)*0xff + res[3*i])-512);
-      double vb = (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
+      total_vRead += (((res[3*i+1]&0x0f)*0x100 + res[3*i])-512);
+      double vb = (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
       Serial.println("Cell "+String(1+i*2+4*j+1)+": "+String(vb)+" [V]");
-      total_vRead += (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
+      total_vRead += (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
     }
   } else { err_count += 1; }
 
   j++;
   if (readBytes(ltc_addr,RDCVB,res,6)) {
     for (int i = 0 ; i < 2 ; i++ ) {
-      double va = (((res[3*i+1]&0x0f)*0xff + res[3*i])-512)*VLSB;
+      double va = (((res[3*i+1]&0x0f)*0x100 + res[3*i])-512)*VLSB;
       Serial.println("Cell "+String(i*2+4*j+1)+": "+String(va)+" [V]");
-      total_vRead += (((res[3*i+1]&0x0f)*0xff + res[3*i])-512);
-      double vb = (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
+      total_vRead += (((res[3*i+1]&0x0f)*0x100 + res[3*i])-512);
+      double vb = (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
       Serial.println("Cell "+String(1+i*2+4*j+1)+": "+String(vb)+" [V]");
-      total_vRead += (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
+      total_vRead += (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
     }
   } else { err_count += 1; }
 
   /*j++;
   if (readBytes(ltc_addr,RDCVC,res,6)) {
     for (int i = 0 ; i < 2 ; i++ ) {
-      double va = (((res[3*i+1]&0x0f)*0xff + res[3*i])-512)*VLSB;
+      double va = (((res[3*i+1]&0x0f)*0x100 + res[3*i])-512)*VLSB;
       Serial.println("Cell "+String(i*2+4*j)+": "+String(va)+" [V]");
-      total_vRead += (((res[3*i+1]&0x0f)*0xff + res[3*i])-512);
-      double vb = (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
+      total_vRead += (((res[3*i+1]&0x0f)*0x100 + res[3*i])-512);
+      double vb = (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
       Serial.println("Cell "+String(1+i*2+4*j)+": "+String(vb)+" [V]");
-      total_vRead += (((res[3*i+2]>>4)*0xff + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
+      total_vRead += (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
     }
   } else { err_count += 1; }*/
   Serial.println("Total: "+String(total_vRead*VLSB)+" [V]");
