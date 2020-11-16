@@ -13,6 +13,7 @@
  * 
  * TODOs, in order of relative importance (more urgent first)
  * - do what's needed to remove the above cdc-related warning
+ * - page 13, wait for iterrupt signal on SDO (pin 12) for battery voltage warning
  * - watchdog
  * - add helper functions for GPIOs
  * - improve parsing of CFGR config register bytes (make it human-friedly)
@@ -70,10 +71,10 @@ byte addr[1] = {LTC1};
 void setup() {
  // put your setup code here, to run once:
  
- pinMode(10, OUTPUT);
- pinMode(11, OUTPUT);
- pinMode(12, INPUT);
- pinMode(13, OUTPUT);
+ pinMode(10, OUTPUT); // CS
+ pinMode(11, OUTPUT); // MOSI / SDI
+ pinMode(12, INPUT);  // MISO / SDO
+ pinMode(13, OUTPUT); // SCK
  pinMode(ENABLE, OUTPUT); // battery-side digital isolator enable switch
  digitalWrite(10, HIGH);
  Serial.begin(38400);
@@ -518,7 +519,6 @@ int readVoltages(byte * ltc_addr){
  int err_count = 0;
  byte res[6];
  unsigned int total_vRead = 0;
- 
 
   int j = 0;
   if (readBytes(ltc_addr,RDCVA,res,6)) {
