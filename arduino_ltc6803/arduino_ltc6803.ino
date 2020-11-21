@@ -10,7 +10,7 @@
  * Date:    2020-11
  * License: GPLv2
  * 
- * WARNING: change in CDC paramters require code tunning! current settings may not be optimal, see defaultConfig
+ * WARNING: change in CDC parameters require code tunning! current settings may not be optimal, see defaultConfig
  * 
  * TODOs, in order of relative importance (more urgent first)
  * - do what's needed to remove the above cdc-related warning
@@ -48,16 +48,9 @@ byte STOWDC[2] {0x70,0x97}; // start open-wire ADC conversions and poll status, 
 #define LTC1 0x80 // Board Address for 1st LTC6803G-2
 #define LTC2 0x81 // Board Address for 2nd LTC6803G-2
 #define LTC3 0x82 // Board Address for 3rd LTC6803G-2
+byte addr[1] = {LTC1};
 
-//byte DEFAULT_MODE[2] {STOWAD[0], STOWAD[1]};
-
-#define ENABLE 9
-
-byte byteHolder;
-// configuration for 1st module of LTC6803-4 (negate LTC6803-4)
-//byte CFFMVMC[6] = {0x09, 0x00, 0x00, 0x00, 0x00, 0x00};
-// configuration for 1st module to assert LTC6803-4
-//byte asLTC6I803[6] = {0x29, 0x00, 0x00, 0xFC, 0xA4, 0xBA};
+#define ENABLE 9  // LTC comm enable pin
 
 byte defaultConfig[6] = {
   0x09, // GPIOs driving, comparator off, 10-cell mode
@@ -68,10 +61,7 @@ byte defaultConfig[6] = {
   0x05  // overvoltage comparison voltage [V]= VOV-32*16*VLSB (4.232 V)
  };
 
-byte WRFG[1] = {0x01};
-byte addr[1] = {LTC1};
 
-/*
 #define CMDC 16
 const char cmdhelp0[] PROGMEM  = "E\tenable communication with LTCs";
 const char cmdhelp1[] PROGMEM  = "e\tdisable communication with LTCs";
@@ -97,7 +87,7 @@ void help() {
     Serial.println((char*)pgm_read_word(&(cmdhelp[i])));
   }
 }
-*/
+
 
 void setup() {
  // put your setup code here, to run once:
@@ -198,47 +188,9 @@ void loop() {
       readTemperatures(addr);
         
     } else if (ser_byte == 'h') {
-      //help();
+      help();
     }
   }
-/*
-  if (readConfig(addr1,false) == 0) {
-    if ( count == 0 ) {
-      readConfig(addr1, true);
-      doSelfTest(addr1);
-    } else {
-      getAll(addr1);
-    }
-  }
-  
-  if (readConfig(addr2,false) == 0) {
-    if ( count == 0 ) {
-      readConfig(addr2, true);
-      doSelfTest(addr2);
-    } else {
-      getAll(addr2);
-    }
-  }
-  
-  comm_disable();
-
-  delay(2000);
-  if ( count == 0 ) {
-    count = 10;
-  } else {
-    count--;
-  }
-    
-    Serial.println("##############################"+String(count)+"####################################");
-  //}
-//}
-
-//  spiStart();
-//  SPI.transfer(getPEC(WRFG,1));
-//  spiEnd();
-//Serial.println("Loop done..");
- delay(2000);
- */
 }
 
 /*
