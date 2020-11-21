@@ -515,9 +515,9 @@ int doSelfTest(byte *ltc_addr) {
  * for more options see Table 10. page 23
 */
 void writeConfig(byte *ltc_addr){
-//#ifdef VERBOSE
+#ifdef VERBOSE
  Serial.println("Writing configuration register on 0x"+String(ltc_addr[0],HEX));spiStart(ltc_addr);
-//#endif
+#endif
  sendBytes(WRCFG, 2);
  sendBytes(defaultConfig, 6);
  SPI.transfer(getPEC(defaultConfig,6));
