@@ -1,4 +1,5 @@
   #include <SPI.h>
+  #include <avr/pgmspace.h>
 
 /*
  * LTC6803 driver for Arduino
@@ -20,6 +21,8 @@
  * - investigate why self-test won't return the expected values
  * - broadcast commands
  */
+
+//#define VERBOSE
 
 // datasheet page 22
 byte WRCFG[2] {0x01,0xc7};  // Write Configuration Register
@@ -68,6 +71,34 @@ byte defaultConfig[6] = {
 byte WRFG[1] = {0x01};
 byte addr[1] = {LTC1};
 
+/*
+#define CMDC 16
+const char cmdhelp0[] PROGMEM  = "E\tenable communication with LTCs";
+const char cmdhelp1[] PROGMEM  = "e\tdisable communication with LTCs";
+const char cmdhelp2[] PROGMEM  = "r\tread config";
+const char cmdhelp3[] PROGMEM  = "w\twrite config";
+const char cmdhelp4[] PROGMEM  = "T\tdo self test";
+const char cmdhelp5[] PROGMEM  = "S\tput LTC in sleep mode";
+const char cmdhelp6[] PROGMEM  = "s\twake LTC";
+const char cmdhelp7[] PROGMEM  = "D\tenable discharge";
+const char cmdhelp8[] PROGMEM  = "d\tdisable discharge";
+const char cmdhelp9[] PROGMEM  = "v\tread voltages";
+const char cmdhelp10[] PROGMEM  = "t\tread temperatures";
+const char cmdhelp11[] PROGMEM  = "c\tstart cell voltage ADC conversions and poll status";
+const char cmdhelp12[] PROGMEM  = "o\tstart open-wire ADC conversions and poll status";
+const char cmdhelp13[] PROGMEM  = "0\tselect LTC at 0x80";
+const char cmdhelp14[] PROGMEM  = "1\tselect LTC at 0x81";
+const char cmdhelp15[] PROGMEM  = "2\tselect LTC at 0x82";
+
+const char * const cmdhelp[] PROGMEM = { cmdhelp0, cmdhelp1, cmdhelp2, cmdhelp3, cmdhelp4, cmdhelp5, cmdhelp6, cmdhelp7, cmdhelp8, cmdhelp9, cmdhelp10, cmdhelp11, cmdhelp12, cmdhelp13, cmdhelp14, cmdhelp15 };
+
+void help() {
+  for(int i=0; i<CMDC; i++) {
+    Serial.println((char*)pgm_read_word(&(cmdhelp[i])));
+  }
+}
+*/
+
 void setup() {
  // put your setup code here, to run once:
  
@@ -77,13 +108,13 @@ void setup() {
  pinMode(13, OUTPUT); // SCK
  pinMode(ENABLE, OUTPUT); // battery-side digital isolator enable switch
  digitalWrite(10, HIGH);
- Serial.begin(38400);
+ Serial.begin(115200);
  //Serial.println("##################################################################");
  //Serial.println("#                                                                #");
  //Serial.println("# LTC6803 Interrogator                                           #");
  //Serial.println("#                                                                #");
  //Serial.println("##################################################################");
- Serial.println("LTC6803 Interrogator ready ; try Ewdv or one of e123rSsTdDcot");
+ Serial.println("LTC6803 Interrogator ready ; h for help");
  
  SPI.begin();
  SPI.setClockDivider(SPI_CLOCK_DIV64); // as low as possible, 128 probabbly the lowest value for Nano (source: IRC). 64 seems to work fine though.
@@ -161,29 +192,13 @@ void loop() {
       enable_polling(addr, set_conversion, set_discharge);
 
     } else if (ser_byte == 'v') {
+      writeConfig(addr);
       readVoltages(addr);
     } else if (ser_byte == 't') {
       readTemperatures(addr);
         
-    /*
-     * help disabled due to low memory
-     * } else if (ser_byte == 'h') {
-      Serial.println("E\tenable communication with LTCs");
-      Serial.println("e\tdisable communication with LTCs");
-      Serial.println("r\tread config");
-      Serial.println("w\twrite config");
-      Serial.println("T\tdo self test");
-      Serial.println("S\tput LTC in sleep mode");
-      Serial.println("s\twake LTC");
-      Serial.println("D\tenable discharge");
-      Serial.println("d\tdisable discharge");
-      Serial.println("v\tread voltages");
-      Serial.println("t\tread temperatures");
-      Serial.println("c\tstart cell voltage ADC conversions and poll status");
-      Serial.println("o\tstart open-wire ADC conversions and poll status");
-      Serial.println("0\tselect LTC at 0x80");
-      Serial.println("1\tselect LTC at 0x81");
-      Serial.println("2\tselect LTC at 0x82");        */
+    } else if (ser_byte == 'h') {
+      //help();
     }
   }
 /*
@@ -225,8 +240,6 @@ void loop() {
  delay(2000);
  */
 }
-
-
 
 /*
  * enable battery-side digital isolator
@@ -314,7 +327,9 @@ bool readBytes(byte *ltc_addr, byte *reg, byte *res, int num_bytes, bool verbose
   spiEnd();
   
   if (getPEC(res,num_bytes) != pec) { 
+#ifdef VERBOSE
     if ( verbose) { Serial.println("PEC Mismatch: read 0x"+String(pec,HEX)+" but computed 0x"+String(getPEC(res,num_bytes),HEX)); }
+#endif
     return false;
    } else {
     //Serial.println("PEC MATCH!!!");
@@ -331,18 +346,26 @@ void enable_polling(byte *ltc_addr, bool set_conversion, bool set_discharge) {
 
   if (set_conversion == true) {
     if (set_discharge == true) {
+#ifdef VERBOSE
       Serial.println("Enabling Cell Voltage ADC Conversions and Poll Status, with Discharge Permitted");
+#endif
       sendBytes(STCVDC, 2);
     } else {
+#ifdef VERBOSE
       Serial.println("Enabling Cell Voltage ADC Conversions and Poll Status");
+#endif
       sendBytes(STCVAD, 2);
     }
   } else {
     if (set_discharge == true) {
+#ifdef VERBOSE
       Serial.println("Open-Wire ADC Conversions and Poll Status, with Discharge Permitted");
+#endif
       sendBytes(STOWDC, 2);
     } else {
+#ifdef VERBOSE
       Serial.println("Open-Wire ADC Conversions and Poll Status");
+#endif
       sendBytes(STOWAD, 2);
     }
   }
@@ -365,7 +388,9 @@ void enable_polling(byte *ltc_addr, bool set_conversion, bool set_discharge) {
  * tells the LTC to go to sleep mode
  */
 void goToSleep(byte *ltc_addr) {
+#ifdef VERBOSE
   Serial.println("Putting 0x"+String(ltc_addr[0],HEX)+" to sleep");
+#endif
   spiStart(ltc_addr);
   sendBytes(WRCFG, 2);
   byte sleepConfig[6] = {
@@ -388,7 +413,9 @@ void goToSleep(byte *ltc_addr) {
 int doSelfTest(byte *ltc_addr) {
   int err_count = 0;
   
+#ifdef VERBOSE
   Serial.println("Running self-test on 0x"+String(ltc_addr[0],HEX));
+#endif
   
   byte res[2];
   // read diagnose register, 2 bytes
@@ -434,7 +461,9 @@ int doSelfTest(byte *ltc_addr) {
   // TODO PLADC poll ADC converter status
   
   // so far this has always failed ; see page 16
+#ifdef VERBOSE
   Serial.println("All bytes below should read 0x555 or 0xAAA (known to fail)");
+#endif
   err_count += 2;
   
   byte voltages[18];
@@ -468,7 +497,9 @@ int doSelfTest(byte *ltc_addr) {
   } else { err_count += 1; }
 
   if ( err_count == 0 ) {
+//#ifdef VERBOSE
     Serial.println("Diagnotics finished with no obvious errors.");
+//#endif
   } else {
     Serial.println("Diagnotics finished with "+String(err_count,DEC)+" errors.");
   }
@@ -484,7 +515,9 @@ int doSelfTest(byte *ltc_addr) {
  * for more options see Table 10. page 23
 */
 void writeConfig(byte *ltc_addr){
+//#ifdef VERBOSE
  Serial.println("Writing configuration register on 0x"+String(ltc_addr[0],HEX));spiStart(ltc_addr);
+//#endif
  sendBytes(WRCFG, 2);
  sendBytes(defaultConfig, 6);
  SPI.transfer(getPEC(defaultConfig,6));
@@ -496,7 +529,9 @@ void writeConfig(byte *ltc_addr){
  * Read Cell Configuration Registers for LTC6803-4 using Addressable Read
  */
 int readConfig(byte *ltc_addr, bool verbose){
+#ifdef VERBOSE
   if (verbose){ Serial.println("Reading configuration register on 0x"+String(ltc_addr[0],HEX));}
+#endif
   byte res[6];
   if (readBytes(ltc_addr,RDCFG,res,6) ) {
     for (int i = 0 ; i < 6 ; i++ ) {
@@ -514,7 +549,9 @@ int readConfig(byte *ltc_addr, bool verbose){
  * Read Cell Voltage Registers for LTC6803-4 using Addressable Read and converts to SI units
  */
 int readVoltages(byte * ltc_addr){
+//#ifdef VERBOSE
  Serial.println("Reading voltages on 0x"+String(ltc_addr[0],HEX));
+//#endif
 
  int err_count = 0;
  byte res[6];
@@ -524,10 +561,18 @@ int readVoltages(byte * ltc_addr){
   if (readBytes(ltc_addr,RDCVA,res,6)) {
     for (int i = 0 ; i < 2 ; i++ ) {
       double va = (((res[3*i+1]&0x0f)*0x100 + res[3*i])-512)*VLSB;
+//#ifdef VERBOSE
       Serial.println("Cell "+String(i*2+4*j+1)+": "+String(va)+" [V]");
+//#else
+//      Serial.println(String(va));
+//#endif
       total_vRead += (((res[3*i+1]&0x0f)*0x100 + res[3*i])-512);
       double vb = (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
+//#ifdef VERBOSE
       Serial.println("Cell "+String(1+i*2+4*j+1)+": "+String(vb)+" [V]");
+//#else
+//      Serial.println(String(vb));
+//#endif
       total_vRead += (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
     }
   } else { err_count += 1; }
@@ -536,10 +581,18 @@ int readVoltages(byte * ltc_addr){
   if (readBytes(ltc_addr,RDCVB,res,6)) {
     for (int i = 0 ; i < 2 ; i++ ) {
       double va = (((res[3*i+1]&0x0f)*0x100 + res[3*i])-512)*VLSB;
+//#ifdef VERBOSE
       Serial.println("Cell "+String(i*2+4*j+1)+": "+String(va)+" [V]");
+//#else
+//      Serial.println(String(va));
+//#endif
       total_vRead += (((res[3*i+1]&0x0f)*0x100 + res[3*i])-512);
       double vb = (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
+//#ifdef VERBOSE
       Serial.println("Cell "+String(1+i*2+4*j+1)+": "+String(vb)+" [V]");
+//#else
+//      Serial.println(String(vb));
+//#endif
       total_vRead += (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
     }
   } else { err_count += 1; }
@@ -565,7 +618,9 @@ int readVoltages(byte * ltc_addr){
  * Read Temperature Registers for LTC6803-4 using Addressable Read and converts to SI units
  */
 int readTemperatures(byte * ltc_addr){
+#ifdef VERBOSE
  Serial.println("Reading temperatures on 0x"+String(ltc_addr[0],HEX));
+#endif
 
   byte res[5];
   if (readBytes(ltc_addr,RDTMP,res,5)) {
