@@ -468,8 +468,9 @@ int doSelfTest(byte *ltc_addr) {
 */
 void writeConfig(byte *ltc_addr){
 #ifdef VERBOSE
- Serial.println("Writing configuration register on 0x"+String(ltc_addr[0],HEX));spiStart(ltc_addr);
+ Serial.println("Writing configuration register on 0x"+String(ltc_addr[0],HEX));
 #endif
+ spiStart(ltc_addr);
  sendBytes(WRCFG, 2);
  sendBytes(defaultConfig, 6);
  SPI.transfer(getPEC(defaultConfig,6));
@@ -513,18 +514,18 @@ int readVoltages(byte * ltc_addr){
   if (readBytes(ltc_addr,RDCVA,res,6)) {
     for (int i = 0 ; i < 2 ; i++ ) {
       double va = (((res[3*i+1]&0x0f)*0x100 + res[3*i])-512)*VLSB;
-//#ifdef VERBOSE
+#ifdef VERBOSE
       Serial.println("Cell "+String(i*2+4*j+1)+": "+String(va)+" [V]");
-//#else
-//      Serial.println(String(va));
-//#endif
+#else
+      Serial.println(String(va));
+#endif
       total_vRead += (((res[3*i+1]&0x0f)*0x100 + res[3*i])-512);
       double vb = (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
-//#ifdef VERBOSE
+#ifdef VERBOSE
       Serial.println("Cell "+String(1+i*2+4*j+1)+": "+String(vb)+" [V]");
-//#else
-//      Serial.println(String(vb));
-//#endif
+#else
+      Serial.println(String(vb));
+#endif
       total_vRead += (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
     }
   } else { err_count += 1; }
@@ -533,18 +534,18 @@ int readVoltages(byte * ltc_addr){
   if (readBytes(ltc_addr,RDCVB,res,6)) {
     for (int i = 0 ; i < 2 ; i++ ) {
       double va = (((res[3*i+1]&0x0f)*0x100 + res[3*i])-512)*VLSB;
-//#ifdef VERBOSE
+#ifdef VERBOSE
       Serial.println("Cell "+String(i*2+4*j+1)+": "+String(va)+" [V]");
-//#else
-//      Serial.println(String(va));
-//#endif
+#else
+      Serial.println(String(va));
+#endif
       total_vRead += (((res[3*i+1]&0x0f)*0x100 + res[3*i])-512);
       double vb = (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512)*VLSB;
-//#ifdef VERBOSE
+#ifdef VERBOSE
       Serial.println("Cell "+String(1+i*2+4*j+1)+": "+String(vb)+" [V]");
-//#else
-//      Serial.println(String(vb));
-//#endif
+#else
+      Serial.println(String(vb));
+#endif
       total_vRead += (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
     }
   } else { err_count += 1; }
