@@ -62,7 +62,6 @@ byte defaultConfig[6] = {
  };
 
 
-#define CMDC 16
 const char cmdhelp0[] PROGMEM  = "E\tenable communication with LTCs";
 const char cmdhelp1[] PROGMEM  = "e\tdisable communication with LTCs";
 const char cmdhelp2[] PROGMEM  = "r\tread config";
@@ -72,7 +71,7 @@ const char cmdhelp5[] PROGMEM  = "S\tput LTC in sleep mode";
 const char cmdhelp6[] PROGMEM  = "s\twake LTC";
 const char cmdhelp7[] PROGMEM  = "D\tenable discharge";
 const char cmdhelp8[] PROGMEM  = "d\tdisable discharge";
-const char cmdhelp9[] PROGMEM  = "v\tread voltages";
+const char cmdhelp9[] PROGMEM  = "v\tread voltages (also writes config)";
 const char cmdhelp10[] PROGMEM  = "t\tread temperatures";
 const char cmdhelp11[] PROGMEM  = "c\tstart cell voltage ADC conversions and poll status";
 const char cmdhelp12[] PROGMEM  = "o\tstart open-wire ADC conversions and poll status";
@@ -81,9 +80,10 @@ const char cmdhelp14[] PROGMEM  = "1\tselect LTC at 0x81";
 const char cmdhelp15[] PROGMEM  = "2\tselect LTC at 0x82";
 
 const char * const cmdhelp[] PROGMEM = { cmdhelp0, cmdhelp1, cmdhelp2, cmdhelp3, cmdhelp4, cmdhelp5, cmdhelp6, cmdhelp7, cmdhelp8, cmdhelp9, cmdhelp10, cmdhelp11, cmdhelp12, cmdhelp13, cmdhelp14, cmdhelp15 };
+#define CMDC 15
 
 void help() {
-  for(int i=0; i<CMDC; i++) {
+  for(int i=0; i<=CMDC; i++) {
     Serial.println((char*)pgm_read_word(&(cmdhelp[i])));
   }
 }
@@ -449,9 +449,9 @@ int doSelfTest(byte *ltc_addr) {
   } else { err_count += 1; }
 
   if ( err_count == 0 ) {
-//#ifdef VERBOSE
+#ifdef VERBOSE
     Serial.println("Diagnotics finished with no obvious errors.");
-//#endif
+#endif
   } else {
     Serial.println("Diagnotics finished with "+String(err_count,DEC)+" errors.");
   }
@@ -502,9 +502,9 @@ int readConfig(byte *ltc_addr, bool verbose){
  * Read Cell Voltage Registers for LTC6803-4 using Addressable Read and converts to SI units
  */
 int readVoltages(byte * ltc_addr){
-//#ifdef VERBOSE
+#ifdef VERBOSE
  Serial.println("Reading voltages on 0x"+String(ltc_addr[0],HEX));
-//#endif
+#endif
 
  int err_count = 0;
  byte res[6];
@@ -561,7 +561,11 @@ int readVoltages(byte * ltc_addr){
       total_vRead += (((res[3*i+2]>>4)*0x100 + ((res[3*i+2]&0x0f)<<4 | (res[3*i+1]&0xf0)>>4))-512);
     }
   } else { err_count += 1; }*/
+#ifdef VERBOSE
   Serial.println("Total: "+String(total_vRead*VLSB)+" [V]");
+#else
+  Serial.println("S="+String(total_vRead*VLSB));
+#endif
  
   return err_count;
  }
