@@ -239,23 +239,17 @@ void spiStart(byte *ltc_addr) {
   SPI.transfer(getPEC(ltc_addr,1));
 }
 
-void spiEnd(uint8_t flag) { //Wait poll Status
+void spiEnd() {
  SPI.end();
- if(flag > 0) {
-   delayMicroseconds(10);
-   digitalWrite(10, HIGH);
- }
+ delayMicroseconds(10);
+ digitalWrite(10, HIGH);
 }
 
 // Send multiple data to LTC
 void sendBytes(byte * data, int n){
- for (int i = 0; i<n; i++){
-   SPI.transfer(data[i]);
-   }
- }
-
-void spiEnd(void) {
- spiEnd(1);
+  for (int i = 0; i<n; i++){
+    SPI.transfer(data[i]);
+  }
 }
 
 
